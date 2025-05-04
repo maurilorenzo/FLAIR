@@ -3,9 +3,7 @@ library(LaplacesDemon)
 library(MASS)
 library(matrixStats)
 library(rsvd)
-
 library(Rcpp)
-
 
 sourceCpp('helper_functions.cpp')
 
@@ -158,8 +156,8 @@ compute_rho <- function(X, M_tilde, Beta_bar, Lambda_bar, subsample_index, metho
 
 
 compute_MAP <- function(Y, observed, X, M_hat, Beta_hat, Lambda_hat, scales_Beta, scales_Lambda, max_it=100, 
-                        tol=0.01, C_lambda=10, C_mu=10, C_beta=10, step_size=0.5, alternate_max=5, post_process_1=T, loss_tol=0.001){
-  
+                        tol=0.01, C_lambda=10, C_mu=10, C_beta=10, step_size=0.5, alternate_max=5, post_process_1=T, 
+                        loss_tol=0.001){
   
   log_posterior_old <- compute_log_posterior(Y, X, M_hat, Beta_hat, Lambda_hat, observed, scales_Lambda, scales_Beta)
   print(paste ('initial log posterior: ', log_posterior_old))
@@ -253,26 +251,6 @@ get_linear_predictor<- function(Y, X, k, U, D, V, eps=0.005, approximate=TRUE, r
   return(Z_hat)
 }
 
-compute_svd <- function(Y, k=10, randomized_svd=F){
-  if (n > p) {
-    YtY <- t(Y) %*% Y
-    if(randomized_svd){s_Y <- rsvd(YtY, k=k, nu=k, nv=k, p = 10, q = 2, sdist = "normal")}
-    else{s_Y <- svd(YtY, nv=k, nu=k)}
-    V <- s_Y$u[,1:k]
-    D <- diag(s_Y$d[1:k]^(1/2))
-    U <- Y %*% V %*% diag(s_Y$d[1:k]^(-1/2))
-  }
-  else {
-    if(randomized_svd){s_Y <- rsvd(Y, k=k, nu=k, nv=k, p = 10, q = 2, sdist = "normal")}
-    else{s_Y <- svd(Y, nv=k, nu=k)}
-    U <- s_Y$u[,1:k]
-    D <- diag(s_Y$d[1:k])
-    V <- s_Y$v[,1:k]
-  }
-  return(list(U=U, D=D, V=V))
-}
-
-
 svd_Y <- function(Y, X, k_max, randomized_SVD){
   q <- ncol(X)
   k_tilde <- k_max + q 
@@ -316,7 +294,8 @@ FLAIR_wrapper <- function(
     Y, X, k_max=20, k=NA, method_rho='max', eps=0.005,  alternate_max=3, max_it=1000, tol=0.001,
     post_process=T,  subsample_index = 1:100, n_MC=1000, C_lambda=10,  C_mu=10, C_beta=10, sigma=1.702, 
     observed = NA, randomized_svd=F, step_size_newton=1, loss_tol=0.001,
-    provide_posterior_samples=T) {
+    provide_posterior_samples=T, backend="c++", autograd=TRUE, 
+    batch_size_beta=512, batch_size_eta=512, eager_run=FALSE, retrace_print=FALSE) {
   
   if(is.na(sum(observed))) {observed = matrix(1, nrow=nrow(Y), ncol=ncol(Y) )}
   p <- ncol(Y); n<-nrow(Y); q <- ncol(X)
@@ -334,7 +313,6 @@ FLAIR_wrapper <- function(
   }
   
   # compute joint MAP  
-  
   ## init
   init_values <- get_initialization(Y, X, k, randomized_svd=randomized_svd, eps=eps, 
                                     l_tau_sq_beta=0.5, u_tau_sq_beta=20, l_tau_sq_lambda=0.5, 
@@ -347,13 +325,36 @@ FLAIR_wrapper <- function(
   Lambda_hat[Lambda_hat>C_lambda] <- C_lambda;   Lambda_hat[Lambda_hat< -C_lambda] <- (-C_lambda)
   M_hat[M_hat>2 *sqrt(log(k*n))] <- 2 *sqrt(log(k*n));   M_hat[M_hat< -  2*sqrt(log(k*n))] <- (-2 *sqrt(log(k*n)));
   
-  MAP_estimate <- compute_MAP(Y, observed, X, M_hat, Beta_hat, Lambda_hat, scales_Beta, scales_Lambda, max_it, 
-                              tol, C_lambda, C_mu, C_beta, step_size_newton, alternate_max, 
-                              post_process_1=FALSE, loss_tol=loss_tol)
-  M_tilde <- MAP_estimate$M_hat; 
-  Beta_init <- MAP_estimate$Beta_hat;
-  Lambda_init <- MAP_estimate$Lambda_hat
-  log_posterior_map <- MAP_estimate$log_posterior_map
+  start_time = proc.time()
+  if(backend == "c++"){
+    cat("using C++ backend for MAP estimate\n")
+    MAP_estimate <- compute_MAP(Y, observed, X, M_hat, Beta_hat, Lambda_hat, scales_Beta, scales_Lambda, max_it, 
+                                tol, C_lambda, C_mu, C_beta, step_size_newton, alternate_max, 
+                                post_process_1=FALSE, loss_tol=loss_tol)
+    M_tilde <- MAP_estimate$M_hat; 
+    Beta_init <- MAP_estimate$Beta_hat;
+    Lambda_init <- MAP_estimate$Lambda_hat
+    log_posterior_map <- MAP_estimate$log_posterior_map
+  } else{
+    cat("using TensorFlow backend for MAP estimate\n")
+    Y_tf = Y
+    Y_tf[!observed] = NA
+    scales_Beta_tf = matrix(scales_Beta, ncol=1)
+    scales_Lambda_tf = matrix(scales_Lambda, ncol=1)
+    scales_Eta_tf = matrix(1, nrow(Y), 1)
+    MAP_estimate <- compute_MAP_tf(Y_tf, X, Beta_hat, M_hat, Lambda_hat, scales_Beta_tf, scales_Eta_tf, scales_Lambda_tf, 
+                                   as.integer(max_it), tol, C_lambda, C_mu, C_beta, step_size_newton, as.integer(alternate_max), 
+                                   post_process_1=FALSE, loss_tol=loss_tol, autograd=autograd,
+                                   batch_size_beta=as.integer(batch_size_beta), batch_size_eta=as.integer(batch_size_eta),
+                                   eager_run=eager_run, retrace_print=retrace_print)
+    Beta_init <- MAP_estimate[[1]]
+    M_tilde <- MAP_estimate[[2]]
+    Lambda_init <- MAP_estimate[[3]]
+    log_posterior_map <- MAP_estimate[[4]]
+  }
+  map_time = proc.time() - start_time
+  cat(sprintf("FLAIR MAP estimate elapsed time: %.1f\n", map_time[3]))
+  
   if(post_process){
     post_processed_params <- post_process(X, M_tilde, Beta_init, Lambda_init)
     Beta_tilde <- post_processed_params$Beta_tilde; Beta_init  = Beta_tilde

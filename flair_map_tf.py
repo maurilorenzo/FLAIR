@@ -12,7 +12,7 @@ tfd = tfp.distributions
 def compute_log_posterior_tf(Y, X, Beta, Eta, Lambda, prior_var_beta=1, prior_var_eta=1, prior_var_lambda=1, 
                           retrace_print=True, dtype=np.float64):
   if retrace_print == True: print("retracing compute_log_posterior")
-  Yo = tf.cast(~tfm.is_nan(tf.cast(Y, float)), dtype)
+  Yo = tf.cast(~tfm.is_nan(tf.cast(Y, dtype)), dtype)
   Z = tf.matmul(X, Beta, transpose_b=True) + tf.matmul(Eta, Lambda, transpose_b=True)
   obsDist = tfd.Bernoulli(logits=Z)
   logLikeY = tfm.multiply_no_nan(obsDist.log_prob(Y), Yo)
@@ -113,14 +113,20 @@ def map_latent_factors(Y, X, Beta, Eta, Lambda, prior_var_eta, max_it, epsilon=0
 
 def compute_MAP_tf(Y, X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior_var_lambda, max_it=100, tol=0.01, 
                 C_lambda=10, C_mu=10, C_beta=10, step_size=0.5, alternate_max=5, post_process_1=True, loss_tol=0.001, 
-                autograd=True, batch_size_beta=512, batch_size_eta=512, eager_run=False, retrace_print=False, dtype=np.float64):
+                autograd=False, eager_run=False, batch_size_beta=512, batch_size_eta=512, retrace_print=False, dtype=np.float64):
+  if dtype == 32:
+    dtype = np.float32
+  elif dtype == 64:
+    dtype = np.float64
+  elif type(dtype) != type:
+    raise Exception("dtype argument must be a valid type or 32 or 64")
   
   tf.config.run_functions_eagerly(eager_run)
   if eager_run == True: print("running MAP estimation eagerly")
-  if retrace_print == True: print("retracing map_latent_factors")
+  v_list = [X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior_var_lambda]
+  X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior_var_lambda = [tf.cast(v, dtype) for v in v_list]
   log_posterior_old = compute_log_posterior_tf(Y, X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior_var_lambda, retrace_print, dtype)
   print(f'initial log posterior: {log_posterior_old}')
-  
   for a in range(alternate_max):
     Beta, Lambda = map_regression_coeffs(Y, X, Beta, Eta, Lambda, prior_var_beta, prior_var_lambda, max_it, 
                                          epsilon=tol, C_mu=C_mu, C_beta=C_beta, C_lambda=C_lambda, step_size=step_size, 
@@ -140,7 +146,7 @@ def compute_MAP_tf(Y, X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior
   return Beta.numpy(), Eta.numpy(), Lambda.numpy(), log_posterior_new.numpy()
 
 
-def main():
+def main(autograd=False, eager_run=False, enable_plotting=False, dtype=np.float64):
   np.random.seed(42)
   tfr.set_seed(42)
   p = 21
@@ -148,9 +154,6 @@ def main():
   q = 11
   k = 13
   max_it = 10
-  eager_run = False
-  autograd = False
-  dtype = np.float64
   retrace_print = not eager_run
   tf.config.run_functions_eagerly(eager_run)
     
@@ -164,38 +167,43 @@ def main():
   prior_var_lambda = np.ones([p,1])
   prior_var_eta = np.ones([n,1])
   
+  v_list = [X, Eta, Beta, Lambda, prior_var_beta, prior_var_lambda, prior_var_eta]
+  X, Eta, Beta, Lambda, prior_var_beta, prior_var_lambda, prior_var_eta = [v.astype(dtype) for v in v_list]
   BetaGen, LambdaGen, EtaGen = Beta, Lambda, Eta
-  lp = compute_log_posterior_tf(Y, X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior_var_lambda, retrace_print, np.float64)
-  print("Likelihood test", lp.numpy())  
+  lp = compute_log_posterior_tf(Y, X, Beta, Eta, Lambda, prior_var_beta, prior_var_eta, prior_var_lambda, retrace_print, dtype)
+  print("Likelihood test", lp.numpy(), flush=True)  
   BetaMap, LambdaMap = map_regression_coeffs(Y, X, 0*Beta, EtaGen, 0*Lambda, prior_var_beta, prior_var_lambda, max_it,
                                              autograd=autograd, retrace_print=retrace_print, dtype=dtype)
   
-  plt.subplot(1,2,1)
-  plt.scatter(BetaGen, BetaMap.numpy())
-  plt.gca().axline([0,0], [1,1], color="black", linestyle="dashed")
-  plt.title("Beta")
-  plt.subplot(1,2,2)
-  plt.scatter(LambdaGen, LambdaMap.numpy())
-  plt.gca().axline([0,0], [1,1], color="black", linestyle="dashed")
-  plt.title("Lambda")
-  plt.show()
+  if enable_plotting:
+    plt.subplot(1,2,1)
+    plt.scatter(BetaGen, BetaMap.numpy())
+    plt.gca().axline([0,0], [1,1], color="black", linestyle="dashed")
+    plt.title("Beta")
+    plt.subplot(1,2,2)
+    plt.scatter(LambdaGen, LambdaMap.numpy())
+    plt.gca().axline([0,0], [1,1], color="black", linestyle="dashed")
+    plt.title("Lambda")
+    plt.show()
   
   EtaMap = map_latent_factors(Y, X, BetaGen, 0*Eta, LambdaGen, prior_var_eta, max_it, 
-                              autograd=autograd, dtype=dtype)
-  plt.scatter(EtaGen, EtaMap.numpy())
-  plt.gca().axline([0,0], [1,1], color="black", linestyle="dashed")
-  plt.title("Eta")
-  plt.show()
+                              autograd=autograd, retrace_print=retrace_print, dtype=dtype)
+  if enable_plotting:
+    plt.scatter(EtaGen, EtaMap.numpy())
+    plt.gca().axline([0,0], [1,1], color="black", linestyle="dashed")
+    plt.title("Eta")
+    plt.show()
   
   multGen, multRand = 0.1, 0.3
   BetaInit = multGen*BetaGen + multRand*np.random.normal(size=BetaGen.shape)
   EtaInit = multGen*EtaGen + multRand*np.random.normal(size=EtaGen.shape)
   LambdaInit = multGen*LambdaGen + multRand*np.random.normal(size=LambdaGen.shape)
   startTime = time()
-  print("MAP started")
+  BetaInit, EtaInit, LambdaInit = [v.astype(dtype) for v in [BetaInit, EtaInit, LambdaInit]]
+  print("MAP test started", flush=True)
   res = compute_MAP_tf(Y, X, BetaInit, EtaInit, LambdaInit, prior_var_beta, prior_var_eta, prior_var_lambda, max_it=10, tol=0.01, 
                     C_lambda=10, C_mu=10, C_beta=10, step_size=0.1, alternate_max=2, post_process_1=True, loss_tol=0.001,
-                    autograd=autograd, retrace_print=retrace_print, dtype=np.float64)
+                    autograd=autograd, eager_run=eager_run, retrace_print=retrace_print, dtype=dtype)
   stopTime = time()
   print(f"elapsed time: {stopTime-startTime:.1f}")
 

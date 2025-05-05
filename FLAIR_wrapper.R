@@ -295,7 +295,7 @@ FLAIR_wrapper <- function(
     post_process=T,  subsample_index = 1:100, n_MC=1000, C_lambda=10,  C_mu=10, C_beta=10, sigma=1.702, 
     observed = NA, randomized_svd=F, step_size_newton=1, loss_tol=0.001,
     provide_posterior_samples=T, backend="c++", autograd=TRUE, 
-    batch_size_beta=512, batch_size_eta=512, eager_run=FALSE, retrace_print=FALSE) {
+    batch_size_beta=512, batch_size_eta=512, eager_run=FALSE, retrace_print=FALSE, dtype=dtype) {
   
   if(is.na(sum(observed))) {observed = matrix(1, nrow=nrow(Y), ncol=ncol(Y) )}
   p <- ncol(Y); n<-nrow(Y); q <- ncol(X)
@@ -346,7 +346,7 @@ FLAIR_wrapper <- function(
                                    as.integer(max_it), tol, C_lambda, C_mu, C_beta, step_size_newton, as.integer(alternate_max), 
                                    post_process_1=FALSE, loss_tol=loss_tol, autograd=autograd,
                                    batch_size_beta=as.integer(batch_size_beta), batch_size_eta=as.integer(batch_size_eta),
-                                   eager_run=eager_run, retrace_print=retrace_print)
+                                   eager_run=eager_run, retrace_print=retrace_print, dtype=dtype)
     Beta_init <- MAP_estimate[[1]]
     M_tilde <- MAP_estimate[[2]]
     Lambda_init <- MAP_estimate[[3]]

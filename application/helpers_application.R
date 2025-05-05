@@ -1,6 +1,4 @@
-
 library(pROC)
-source('../FLAIR_wrapper.R')
 
 
 
@@ -87,7 +85,7 @@ train_test_val_split <- function(Y, th=15){
     train_set = train.set,
     test_set = test.set,
     val_set = val.set,
-    Y_train_imputed = Y.sel.train.imputed
+    Y_train_imputed = Y.sel.train.imputed,
     Y_sel = Y.sel,
     Y_train = Y.train
   ))
@@ -99,44 +97,44 @@ compute_auc <- function(Y, X, Beta, M, Lambda, test_set, val_set, train_set){
   Z_hat <- X %*% t(as.matrix(Beta)) + M %*% t(Lambda)
   
   p_hat_test <- 1/(1+exp(-Z_hat[test_set]))
-  roc_test <- roc(c(Y[test_set]), c(p_hat_test))
+  roc_test <- roc(c(Y[test_set]), c(p_hat_test), direction="<", quiet=TRUE)
   auc_test <- auc(roc_test)[1]
   rm(roc_test)
   
   p_hat_val <- 1/(1+exp(-Z_hat[val_set]))
-  roc_val <- roc(c(Y[val_set]), c(p_hat_val))
+  roc_val <- roc(c(Y[val_set]), c(p_hat_val), direction="<", quiet=TRUE)
   auc_val <- auc(roc_val)[1]
   rm(roc_val)
   
   test_val_set <- c(test_set, val_set)
   p_hat_test_val <- 1/(1+exp(-Z_hat[test_val_set]))
-  roc_test_val <- roc(c(Y[test_val_set]), c(p_hat_test_val))
+  roc_test_val <- roc(c(Y[test_val_set]), c(p_hat_test_val), direction="<", quiet=TRUE)
   auc_test_val <- auc(roc_test_val)[1]
   rm(roc_test_val)
   
   p_hat_train <- 1/(1+exp(-Z_hat[train_set]))
-  roc_train <- roc(c(Y[train_set]), c(p_hat_train))
+  roc_train <- roc(c(Y[train_set]), c(p_hat_train), direction="<", quiet=TRUE)
   auc_train <- auc(roc_train)[1]
   rm(roc_train)
   
   print('AUC')
-  print(paste('test = ', auc_test, 'val = ', auc_val, 'hold-out = ', auc_test_val, 'train = ', auc_train))
+  print(paste('test =', auc_test, 'val =', auc_val, 'hold-out =', auc_test_val, 'train =', auc_train))
   
   return(c(auc_test, auc_val, auc_test_val, auc_train))
 }
 
-Z.hat.insects.1 <- X %*% t(as.matrix(flair.insects.th15$Beta_bar)) + flair.insects.th15$M_tilde %*% t(flair.insects.th15$Lambda_bar)
-p.hat.insects.test.1 <- 1/(1+exp(-Z.hat.insects.1[test.set.th15]))
-roc.insects.test.1 <- roc(c(Y.sel.th15[test.set.th15]), c(p.hat.insects.test.1))
-auc.insects.test.1 <- auc(roc.insects.test.1)[1]; auc.insects.test.1
-rm(roc.insects.test.1)
-
-p.hat.insects.val.1 <- 1/(1+exp(-Z.hat.insects.1[val.set.th15]))
-roc.insects.val.1 <- roc(c(Y.sel.th15[val.set.th15]), c(p.hat.insects.val.1))
-auc.insects.val.1 <- auc(roc.insects.val.1)[1]; auc.insects.val.1
-rm(roc.insects.val.1)
-
-p.hat.insects.holdout.1 <- 1/(1+exp(-Z.hat.insects.1[test.val.set.th15]))
-roc.insects.holdout.1 <- roc(c(Y.sel.th15[test.val.set.th15]), c(p.hat.insects.holdout.1))
-auc.insects.holdout.1 <- auc(roc.insects.holdout.1)[1]; auc.insects.holdout.1
-rm(roc.insects.holdout.1)
+# Z.hat.insects.1 <- X %*% t(as.matrix(flair.insects.th15$Beta_bar)) + flair.insects.th15$M_tilde %*% t(flair.insects.th15$Lambda_bar)
+# p.hat.insects.test.1 <- 1/(1+exp(-Z.hat.insects.1[test.set.th15]))
+# roc.insects.test.1 <- roc(c(Y.sel.th15[test.set.th15]), c(p.hat.insects.test.1))
+# auc.insects.test.1 <- auc(roc.insects.test.1)[1]; auc.insects.test.1
+# rm(roc.insects.test.1)
+# 
+# p.hat.insects.val.1 <- 1/(1+exp(-Z.hat.insects.1[val.set.th15]))
+# roc.insects.val.1 <- roc(c(Y.sel.th15[val.set.th15]), c(p.hat.insects.val.1))
+# auc.insects.val.1 <- auc(roc.insects.val.1)[1]; auc.insects.val.1
+# rm(roc.insects.val.1)
+# 
+# p.hat.insects.holdout.1 <- 1/(1+exp(-Z.hat.insects.1[test.val.set.th15]))
+# roc.insects.holdout.1 <- roc(c(Y.sel.th15[test.val.set.th15]), c(p.hat.insects.holdout.1))
+# auc.insects.holdout.1 <- auc(roc.insects.holdout.1)[1]; auc.insects.holdout.1
+# rm(roc.insects.holdout.1)

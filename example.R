@@ -5,7 +5,10 @@ option_list <- list(
 	make_option(c("-n", "--n"), default=500, help="number of sampling units"),
 	make_option(c("-b", "--backend"), default="c++", help="c++ or tf"),
 	make_option("--autograd", default=0, help="use autograd (1) or manual gradients and hessians (0)"),
-	make_option("--eager", default=0, help="use eager tf execution (1) or graph (0)")
+	make_option("--eager", default=0, help="use eager tf execution (1) or graph (0)"),
+	make_option("--bsb", default=512, help="batch size for map_regression_coeffs(...)"),
+	make_option("--bse", default=512, help="batch size for map_latent_factors(...)"),
+	make_option("--dtype", default=64, help="32 for single precision or 64 double precision")
 )
 opt <- parse_args(OptionParser(option_list=option_list))
 
@@ -17,7 +20,7 @@ k <- 10 # number of factors
 q <- 10 # number of covariates
 p <- opt$p # number of species
 n <- opt$n # number of samples
-
+  
 sigma_lambda=sqrt(0.5) # sqrt of loadings
 sigma_beta=sqrt(0.5) # sqrt of regr coeffs
 pi_lambda=0.5 # 1 - sparsity probability for loadings
@@ -25,10 +28,12 @@ pi_beta=0.5 # 1 - sparsity probability for regr coeffs
 
 # select c++ or tf MAP computational backend
 backend = opt$backend
-# generally we want autograd=F, eager_run=F for optimal numerical perfomance
+# generally we want autograd=F, eager_run=F for optimal numerical performance
 autograd = opt$autograd
 eager_run = opt$eager
-
+batch_size_beta = opt$bsb
+batch_size_eta = opt$bse
+dtype = opt$dtype
 if(backend == "tf"){
 	library(reticulate)
 	cat("If execution crashes here, check your python+reticulate configuration!\n")
@@ -46,6 +51,7 @@ Lambda_0_outer_sub <- Lambda_0_outer[subsample_index, subsample_index]
 Beta_0 <- matrix(rtruncnorm(p*q, a=-5, b=5, 0, sigma_beta)*rbinom(p*q, 1, pi_beta), ncol=q)
 
 # generate data
+cat("generating data\n")
 Eta_0 <- matrix(rnorm(n*k), ncol=k) # latent factors
 X <- cbind(rep(1, n), matrix(rnorm(n*(q-1), 0, 1), ncol=q-1)) # covariates (including intercept)
 Z_0 <-X %*% t(Beta_0) + Eta_0 %*% t(Lambda_0) # linear predictor
@@ -55,8 +61,9 @@ Y <- matrix(0, n, p) # outcomes
 Y[U<P_0] = 1
 
 # estimate k
+cat("estimating k\n")
 k_hat <- select_k(Y, X, observed=matrix(1, n, p), k_max=20, randomized_svd=T)
-print(k_hat)
+cat(sprintf("estimated k_hat=%.d\n", k_hat))
 
 # fit FLAIR
 cat(sprintf("FLAIR estimation started at: %s\n", date()))
@@ -67,7 +74,8 @@ flair_estimate <- FLAIR_wrapper(
   post_process=T, subsample_index = subsample_index, 
   n_MC=300, C_lambda=10,  C_mu=10, C_beta=10, sigma=1.626,
   observed=matrix(1, n, p), randomized_svd=TRUE, loss_tol=0.001,
-  backend=backend, autograd=autograd, eager_run=eager_run)
+  backend=backend, autograd=autograd, eager_run=eager_run, 
+  batch_size_beta=batch_size_beta, batch_size_eta=batch_size_eta, dtype=dtype)
 time_flair = proc.time() - ptm
 cat(sprintf("total FLAIR elapsed time: %.1f\n", time_flair[3]))
 
